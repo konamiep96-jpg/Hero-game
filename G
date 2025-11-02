@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>เกมบัญชีฮีโร่ ออนไลน์</title>
+<style>
+body{font-family:'Noto Sans Thai',sans-serif;background:#02101a;color:#fff;margin:0;padding:0;text-align:center;}
+#gamePanel{padding:10px;}
+#hpHeroBar,#hpBossBar{height:20px;background:green;width:100%;}
+#log{max-height:150px;overflow-y:auto;text-align:left;border:1px solid #fff;margin:5px;padding:5px;}
+#questionPanel{display:none;border:1px solid #fff;padding:5px;margin:5px;}
+canvas{background:#02101a;display:block;margin:10px auto;}
+button{margin:5px;padding:5px 10px;font-size:16px;}
+#victory{display:none;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#fff;color:#000;padding:20px;font-size:24px;border-radius:10px;}
+</style>
+</head>
+<body>
+
+<div id="gamePanel">
+  <h1>เกมบัญชีฮีโร่ ออนไลน์</h1>
+  <div>ทอง: <span id="gold">0</span></div>
+  <div>HP ฮีโร่: <span id="hpHeroText">0</span></div>
+  <div id="hpHeroBar"></div>
+  <div>HP บอส: <span id="hpBossText">0</span></div>
+  <div id="hpBossBar"></div>
+  <div>ด่านบอส: <span id="bossStage">1</span></div>
+  <div>บัพ: <span id="buffs">ไม่มี</span></div>
+  <canvas id="c" width="600" height="300"></canvas>
+  <div id="log"></div>
+
+  <div>
+    <button data-item="potion">ซื้อยา +50HP (30 ทอง)</button>
+    <button data-item="sword">ซื้อดาบหนัก (80 ทอง)</button>
+    <button id="startBossBtn">เริ่มสู้บอส</button>
+    <button id="surrenderBtn">ยอมแพ้</button>
+  </div>
+
+  <div id="questionPanel">
+    <div id="qText"></div>
+    <div id="qChoices"></div>
+    <button id="answerBtn">ตอบ</button>
+    <button id="skipBtn">ข้าม</button>
+  </div>
+
+  <h2>Leaderboard</h2>
+  <div id="leaderboard"></div>
+</div>
+
+<div id="victory">Victory! 🎆</div>
+
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
+<script>
+const firebaseConfig = {
+  apiKey: "AIzaSyC4a9DrCeSN_HQFIHXWJhnzN4Jn376CdIc",
+  authDomain: "hero-4ebbe.firebaseapp.com",
+  databaseURL: "https://hero-4ebbe-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "hero-4ebbe",
+  storageBucket: "hero-4ebbe.firebasestorage.app",
+  messagingSenderId: "868857385644",
+  appId: "1:868857385644:web:d5366bee7f5d7b11e60509",
+  measurementId: "G-2DE96HJN7Z"
+};
+firebase.initializeApp(firebaseConfig);
+const db = firebase.database();
+
+// ================= Player =================
+let playerName = "";
+while(!playerName){
+  playerName = prompt("กรุณากรอกชื่อผู้เล่น:","ผู้กล้า");
+  if(!playerName) alert("ต้องกรอกชื่อก่อนเริ่มเกม!");
+}
+
+const state={gold:60,hp:100,maxhp:100,bossStage:1,bossHP:0,bossMax:0,buffs:{sword:0},inFight:false,log:[],timeStart:0};
+
+const goldEl=document.getElementById('gold'),
+      hpHeroBar=document.getElementById('hpHeroBar'),
+      hpHeroText=document.getElementById('hpHeroText'),
+      hpBossBar=document.getElementById('hpBossBar'),
+      hpBossText=document.getElementById('hpBossText'),
+      buffsEl=document.getElementById('buffs'),
+      bossStageEl=document.getElementById('bossStage'),
+      logEl=document.getElementById('log'),
+      qPanel=document.getElementById('questionPanel'),
+      qText=document.getElementById('qText'),
+      qChoices=document.getElementById('qChoices'),
+      c=document.getElementById('c'),
+      ctx=c.getContext('2d'),
+      leaderboardEl=document.getElementById('leaderboard');
+
+// ================= Images =================
+const heroImg = new Image();
+heroImg.src = 'hero.png';
+const bossImg = new Image();
+bossImg.src = 'boss.png';
+
+// ================= Questions =================
+const questions=[
+  {q:'งบดุลประกอบด้วย?',choices:['สินทรัพย์/หนี้สิน','รายได้/ค่าใช้จ่าย','กระแสเงินสด'],a:0,diff:'easy'},
+  {q:'ค่าเสื่อมสะท้อน?',choices:['การสูญเสียเงินสด','กระจายต้นทุน','รายได้'],a:1,diff:'medium'},
+  {q:'บัญชีทุนแสดง?',choices:['สิทธิของเจ้าของ','หนี้ภายนอก','สินค้า'],a:0,diff:'hard'},
+  {q:'รายการค่าใช้จ่ายใดไม่ใช่ค่าใช้จ่ายในการดำเนินงาน?',choices:['ค่าโฆษณา','ค่าดอกเบี้ยเงินกู้','เงินเดือนพนักงาน'],a:1,diff:'easy'},
+  {q:'ต้นทุนคงที่คืออะไร?',choices:['ต้นทุนที่ไม่เปลี่ยนตามปริมาณ','ต้นทุนต่อหน่วย','ต้นทุนผันแปร'],a:0,diff:'medium'},
+  {q:'รายได้รับรู้เมื่อไร?',choices:['เมื่อขายสินค้า','เมื่อได้รับเงิน','เมื่อสินค้าอยู่ในสต็อก'],a:0,diff:'easy'},
+  {q:'หนี้สินระยะสั้นคืออะไร?',choices:['ต้องจ่ายภายใน 1 ปี','ต้องจ่ายภายใน 5 ปี','ไม่ต้องจ่าย'],a:0,diff:'medium'},
+  {q:'ค่าใช้จ่ายใดจัดอยู่ในต้นทุนขาย?',choices:['ค่าเช่าสำนักงาน','ค่าแรงพนักงานผลิต','ค่าดอกเบี้ยเงินกู้'],a:1,diff:'medium'}
+];
+function goldByDiff(d){if(d==='easy')return 20;if(d==='medium')return 40;return 60;}
+
+// ================= Save & Log =================
+function save(){
+  goldEl.textContent=state.gold;
+  hpHeroBar.style.width = (state.hp/state.maxhp*100)+'%';
+  if(state.hp/state.maxhp>0.6) hpHeroBar.style.backgroundColor='green';
+  else if(state.hp/state.maxhp>0.3) hpHeroBar.style.backgroundColor='yellow';
+  else hpHeroBar.style.backgroundColor='red';
+  hpHeroText.textContent=state.hp+' / '+state.maxhp;
+
+  hpBossBar.style.width=(state.bossMax?state.bossHP/state.bossMax*100:0)+'%';
+  hpBossText.textContent=state.bossHP+' / '+state.bossMax;
+
+  buffsEl.textContent=state.buffs.sword?'ดาบชาร์จ':'ไม่มี';
+  bossStageEl.textContent=state.bossStage;
+  renderLog();
+}
+function addLog(t){state.log.unshift(t);if(state.log.length>50)state.log.pop();renderLog();}
+function renderLog(){logEl.innerHTML=state.log.map(s=>'<div>'+s+'</div>').join('');}
+
+// ================= Draw Scene =================
+function drawScene(heroShake=0,bossShake=0){
+  ctx.clearRect(0,0,c.width,c.height);
+  ctx.fillStyle='#02101a';
+  ctx.fillRect(0,0,c.width,c.height);
+  ctx.drawImage(heroImg,100+(Math.random()-0.5)*heroShake,130,50,50);
+  ctx.drawImage(bossImg,450+(Math.random()-0.5)*bossShake,100,100,100);
+}
+
+function animateAttack(type){
+  let t=0;
+  const timer=setInterval(()=>{
+    t++;
+    if(type==='hero') drawScene(12,0);
+    if(type==='boss') drawScene(0,12);
+    if(t>8){clearInterval(timer);drawScene();}
+  },40);
+}
+
+// ================= Game Logic =================
+let currentQuestion=null;
+let questionPool=[...questions];
+
+function newBoss(){
+  if(!heroImg.complete || !bossImg.complete){
+    addLog('รอโหลดภาพ...');
+    setTimeout(newBoss,100); return;
+  }
+  state.inFight=true;
+  state.bossMax=500; state.bossHP=state.bossMax;
+  addLog('บอสปรากฏแล้ว! ต่อสู้ให้ชนะ!');
+  state.timeStart=Date.now();
+  save(); drawScene(); showQuestion();
+}
+
+function showQuestion(){
+  if(questionPool.length===0) questionPool=[...questions];
+  const idx=Math.floor(Math.random()*questionPool.length);
+  currentQuestion=questionPool.splice(idx,1)[0];
+  qPanel.style.display='block';
+  qText.textContent='['+currentQuestion.diff+'] '+currentQuestion.q;
+  qChoices.innerHTML=currentQuestion.choices.map((c,i)=>`<div><label><input type=radio name=ans value=${i}> ${c}</label></div>`).join('');
+}
+
+// ================= Buttons =================
+document.getElementById('answerBtn').onclick=()=>{
+  const sel=[...document.getElementsByName('ans')].find(r=>r.checked);if(!sel)return alert("เลือกคำตอบก่อน!");
+  const idx=Number(sel.value); qPanel.style.display='none';
+  if(idx===currentQuestion.a){
+    const dmg=state.buffs.sword?25:10;
+    state.bossHP=Math.max(0,state.bossHP-dmg);
+    state.gold+=goldByDiff(currentQuestion.diff);
+    addLog('ตอบถูก! โจมตี -'+dmg);
+    state.buffs.sword=0;
+    animateAttack('hero');
+    if(state.bossHP<=0) return victory();
+  }else{
+    state.hp=Math.max(0,state.hp-20);
+    addLog('ตอบผิด! บอสตี -20');
+    animateAttack('boss');
+    if(state.hp<=0) return gameOver();
+  }
+  save(); setTimeout(showQuestion,600);
+};
+
+document.getElementById('skipBtn').onclick=()=>{
+  qPanel.style.display='none';
+  state.hp=Math.max(0,state.hp-20);
+  addLog('ข้าม! บอสตี -20');
+  animateAttack('boss');
+  if(state.hp<=0) return gameOver();
+  save(); setTimeout(showQuestion,600);
+};
+
+document.querySelectorAll('[data-item]').forEach(b=>b.onclick=()=>{
+  const it=b.dataset.item;
+  if(it==='potion'){if(state.gold<30){addLog('ทองไม่พอ');return;}state.gold-=30;state.hp=Math.min(state.maxhp,state.hp+50);addLog('ใช้ยา +50 HP');}
+  if(it==='sword'){if(state.gold<80){addLog('ทองไม่พอ');return;}state.gold-=80;state.buffs.sword=1;addLog('ซื้อดาบหนัก');}
+  save();
+});
+
+document.getElementById('startBossBtn').onclick=newBoss;
+
+document.getElementById('surrenderBtn').onclick=()=>{
+  if(!state.inFight) return;
+  state.inFight=false;
+  state.hp=0;
+  addLog('คุณแพ้แล้ว ไก่น้อย 🐥');
+  alert('คุณแพ้แล้ว ไก่น้อย 🐥');
+  save();
+};
+
+// ================= Victory / Game Over =================
+function victory(){
+  addLog('Victory! 🎆');
+  document.getElementById('victory').style.display='flex';
+  state.inFight=false;
+  const elapsed=Math.round((Date.now()-state.timeStart)/1000);
+  db.ref('leaderboard').push({name:playerName,time:elapsed}).then(()=>loadLeaderboard());
+  setTimeout(()=>{document.getElementById('victory').style.display='none';},2000);
+  save();
+}
+function gameOver(){
+  addLog('คุณแพ้! 😢');
+  state.inFight=false;
+  save();
+}
+
+// ================= Leaderboard =================
+function loadLeaderboard(){
+  db.ref('leaderboard').orderByChild('time').limitToFirst(10).once('value',snapshot=>{
+    leaderboardEl.innerHTML='';
+    snapshot.forEach(snap=>{
+      const data=snap.val();
+      leaderboardEl.innerHTML+=`<div>${data.name}: ${data.time}s</div>`;
+    });
+  });
+}
+
+save(); loadLeaderboard();
+</script>
+
+</body>
+</html>
