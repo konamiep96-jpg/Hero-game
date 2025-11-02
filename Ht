@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>เกมบัญชีฮีโร่ ออนไลน์</title>
+  <style>
+    body { font-family: 'Noto Sans Thai', sans-serif; text-align: center; background: #f3f3f3; margin: 0; padding: 20px; }
+    .btn { padding: 10px 20px; margin: 10px; background: #007bff; color: white; border: none; border-radius: 8px; cursor: pointer; }
+    .btn:hover { background: #0056b3; }
+    table { width: 90%; margin: 20px auto; border-collapse: collapse; background: white; border-radius: 10px; overflow: hidden; }
+    th, td { padding: 10px; border-bottom: 1px solid #ddd; }
+    th { background: #007bff; color: white; }
+  </style>
+</head>
+<body>
+  <h1>🏆 เกมบัญชีฮีโร่ ออนไลน์</h1>
+  <button id="startBtn" class="btn">เริ่มสู้บอส</button>
+  <button id="winBtn" class="btn" style="display:none;">ชนะบอส!</button>
+
+  <h2>📋 ตารางอันดับ (เร็วสุดก่อน)</h2>
+  <table>
+    <thead>
+      <tr><th>อันดับ</th><th>ชื่อ</th><th>เวลา (วินาที)</th></tr>
+    </thead>
+    <tbody id="leaderboard"></tbody>
+  </table>
+
+  <script type="module" src="script.js"></script>
+</body>
+</html>
